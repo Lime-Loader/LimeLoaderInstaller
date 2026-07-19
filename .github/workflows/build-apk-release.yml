@@ -34,7 +34,7 @@ jobs:
           dotnet --version
           dotnet --list-sdks
 
-      - name: Install MAUI workload
+      - name: Install MAUI Android workload
         shell: pwsh
         run: |
           dotnet workload install maui-android --ignore-failed-sources
@@ -45,21 +45,22 @@ jobs:
         run: |
           dotnet restore App/MelonLoader.Installer.App.csproj
 
-      - name: Build APK
+      - name: Build APK (Release)
         shell: pwsh
         env:
           KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
+          LIME_KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
         run: |
           Set-PSDebug -Strict
+
+          if (-not $env:LIME_KEYSTORE_PASS) {
+            Write-Error "KEYSTORE_PASS secret is missing"
+            exit 1
+          }
 
           Push-Location App
 
           if (-Not (Test-Path limeinstaller.keystore)) {
-            if (-not $env:KEYSTORE_PASS) {
-              Write-Error "KEYSTORE_PASS secret missing"
-              exit 1
-            }
-
             keytool -genkeypair `
               -v `
               -keystore limeinstaller.keystore `
@@ -67,9 +68,12 @@ jobs:
               -keyalg RSA `
               -keysize 2048 `
               -validity 10000 `
-              -storepass $env:KEYSTORE_PASS `
-              -keypass $env:KEYSTORE_PASS `
+              -storepass $env:LIME_KEYSTORE_PASS `
+              -keypass $env:LIME_KEYSTORE_PASS `
               -dname "CN=lime, OU=dev, O=lime, L=, ST=, C=US"
+          }
+          else {
+            Write-Host "Keystore exists"
           }
 
           dotnet build MelonLoader.Installer.App.csproj `
@@ -78,26 +82,27 @@ jobs:
             -p:AndroidKeyStore=true `
             -p:AndroidSigningKeyStore=limeinstaller.keystore `
             -p:AndroidSigningKeyAlias=lime `
-            -p:AndroidSigningKeyPass=$env:KEYSTORE_PASS `
-            -p:AndroidSigningStorePass=$env:KEYSTORE_PASS
+            -p:AndroidSigningKeyPass=env:LIME_KEYSTORE_PASS `
+            -p:AndroidSigningStorePass=env:LIME_KEYSTORE_PASS
 
           Pop-Location
 
-      - name: Find APK
+      - name: Copy APK
         shell: pwsh
         run: |
           $apk = Get-ChildItem `
-            -Path App/bin/Release/net8.0-android `
-            -Filter *.apk `
+            -Path "App/bin/Release/net8.0-android" `
+            -Filter "*.apk" `
             -Recurse |
             Select-Object -First 1
 
-          if (-not $apk) {
+          if ($null -eq $apk) {
             Write-Error "APK not found"
             exit 1
           }
 
           Copy-Item $apk.FullName installer.apk
+          Write-Host "APK copied: $($apk.FullName)"
 
       - name: Create GitHub release
         id: create_release
