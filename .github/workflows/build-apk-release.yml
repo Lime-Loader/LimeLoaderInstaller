@@ -18,13 +18,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup .NET
+      - name: Setup .NET 8 SDK
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: |
-            8.0.x
+          dotnet-version: 8.0.408
 
-      - name: Install MAUI workload
+      - name: Pin SDK 8
+        shell: pwsh
+        run: |
+          @"
+          {
+            "sdk": {
+              "version": "8.0.408",
+              "rollForward": "latestPatch",
+              "allowPrerelease": false
+            }
+          }
+          "@ | Out-File global.json -Encoding utf8
+
+      - name: Verify SDK
+        shell: pwsh
+        run: |
+          dotnet --version
+          dotnet --info
+
+      - name: Install Android workload
         shell: pwsh
         run: |
           dotnet workload install maui-android
@@ -34,28 +52,29 @@ jobs:
         run: |
           dotnet restore App/MelonLoader.Installer.App.csproj
 
-      - name: Create Android keystore
+      - name: Create signing keystore
         shell: pwsh
         run: |
           Set-PSDebug -Strict
 
           if (-not $env:LIME_KEYSTORE_PASS) {
-              Write-Error "LIME_KEYSTORE_PASS secret is missing"
-              exit 1
+            Write-Error "LIME_KEYSTORE_PASS secret is missing"
+            exit 1
           }
 
           Push-Location App
 
           Remove-Item limeinstaller.keystore -Force -ErrorAction SilentlyContinue
 
-          keytool -genkeypair `
+          keytool `
+            -genkeypair `
             -v `
             -keystore limeinstaller.keystore `
+            -storetype PKCS12 `
             -alias lime `
             -keyalg RSA `
             -keysize 2048 `
             -validity 10000 `
-            -storetype PKCS12 `
             -storepass "$env:LIME_KEYSTORE_PASS" `
             -keypass "$env:LIME_KEYSTORE_PASS" `
             -dname "CN=lime, OU=dev, O=lime, C=US"
