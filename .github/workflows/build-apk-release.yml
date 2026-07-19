@@ -1,87 +1,73 @@
-name: Build and publish MAUI installer APK
+name: Build Android APK
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
-  build-apk:
+  build:
     runs-on: windows-latest
 
+    env:
+      DOTNET_ROOT: C:\Program Files\dotnet
+      LIME_KEYSTORE_PASS: ${{ secrets.LIME_KEYSTORE_PASS }}
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Setup Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Setup .NET 8 SDK
+      - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.416'
+          dotnet-version: |
+            8.0.x
 
-      - name: Force .NET 8 SDK
+      - name: Install MAUI workload
         shell: pwsh
         run: |
-          @"
-          {
-            "sdk": {
-              "version": "8.0.416",
-              "rollForward": "disable",
-              "allowPrerelease": false
-            }
-          }
-          "@ | Out-File -Encoding utf8 global.json
-
-          dotnet --version
-          dotnet --list-sdks
-          java -version
-
-      - name: Install MAUI Android workload
-        shell: pwsh
-        run: |
-          dotnet workload install maui-android --ignore-failed-sources
-          dotnet workload list
+          dotnet workload install maui-android
 
       - name: Restore
         shell: pwsh
         run: |
           dotnet restore App/MelonLoader.Installer.App.csproj
 
-      - name: Build APK (Release)
+      - name: Create Android keystore
         shell: pwsh
-        env:
-          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
-          LIME_KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
         run: |
           Set-PSDebug -Strict
 
           if (-not $env:LIME_KEYSTORE_PASS) {
-            Write-Error "KEYSTORE_PASS secret is missing"
-            exit 1
+              Write-Error "LIME_KEYSTORE_PASS secret is missing"
+              exit 1
           }
 
           Push-Location App
 
-          if (-Not (Test-Path limeinstaller.keystore)) {
-            keytool -genkeypair `
-              -v `
-              -keystore limeinstaller.keystore `
-              -alias lime `
-              -keyalg RSA `
-              -keysize 2048 `
-              -validity 10000 `
-              -storepass $env:LIME_KEYSTORE_PASS `
-              -keypass $env:LIME_KEYSTORE_PASS `
-              -dname "CN=lime, OU=dev, O=lime, L=, ST=, C=US"
-          }
-          else {
-            Write-Host "Keystore exists"
-          }
+          Remove-Item limeinstaller.keystore -Force -ErrorAction SilentlyContinue
+
+          keytool -genkeypair `
+            -v `
+            -keystore limeinstaller.keystore `
+            -alias lime `
+            -keyalg RSA `
+            -keysize 2048 `
+            -validity 10000 `
+            -storetype PKCS12 `
+            -storepass "$env:LIME_KEYSTORE_PASS" `
+            -keypass "$env:LIME_KEYSTORE_PASS" `
+            -dname "CN=lime, OU=dev, O=lime, C=US"
+
+          Pop-Location
+
+      - name: Build APK
+        shell: pwsh
+        run: |
+          Set-PSDebug -Strict
+
+          Push-Location App
 
           dotnet build MelonLoader.Installer.App.csproj `
             -c Release `
@@ -89,41 +75,14 @@ jobs:
             -p:AndroidKeyStore=true `
             -p:AndroidSigningKeyStore=limeinstaller.keystore `
             -p:AndroidSigningKeyAlias=lime `
-            -p:AndroidSigningKeyPass=env:LIME_KEYSTORE_PASS `
-            -p:AndroidSigningStorePass=env:LIME_KEYSTORE_PASS `
-            -v:normal
+            -p:AndroidSigningKeyPass="$env:LIME_KEYSTORE_PASS" `
+            -p:AndroidSigningStorePass="$env:LIME_KEYSTORE_PASS"
 
           Pop-Location
 
-      - name: Copy APK
-        shell: pwsh
-        run: |
-          $apk = Get-ChildItem `
-            -Path "App/bin/Release/net8.0-android" `
-            -Filter "*.apk" `
-            -Recurse |
-            Select-Object -First 1
-
-          if ($null -eq $apk) {
-            Write-Error "APK not found"
-            exit 1
-          }
-
-          Copy-Item $apk.FullName installer.apk
-          Write-Host "APK copied: $($apk.FullName)"
-
-      - name: Create GitHub release
-        id: create_release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ github.ref_name }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Upload APK
-        uses: actions/upload-release-asset@v1
+        uses: actions/upload-artifact@v4
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: installer.apk
-          asset_name: LimeLoaderInstaller.apk
-          asset_content_type: application/vnd.android.package-archive
+          name: lime-installer-apk
+          path: |
+            App/bin/Release/net8.0-android/*Signed.apk
