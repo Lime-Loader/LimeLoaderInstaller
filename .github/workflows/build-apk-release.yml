@@ -13,13 +13,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v3
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '9.0.x'
 
+      - name: Verify .NET version
+        shell: pwsh
+        run: dotnet --info
+
       - name: Install MAUI workloads
-        run: dotnet workload install maui android
+        shell: pwsh
+        run: |
+          dotnet workload install maui android
+
+      - name: Restore dependencies
+        shell: pwsh
+        run: |
+          dotnet restore App/MelonLoader.Installer.App.csproj
 
       - name: Build APK (Release)
         shell: pwsh
@@ -72,11 +83,11 @@ jobs:
             Select-Object -First 1
 
           if ($null -eq $apk) {
-            Write-Error 'APK not found'
+            Write-Error "APK not found"
             exit 1
           }
 
-          Copy-Item $apk.FullName -Destination installer.apk
+          Copy-Item $apk.FullName installer.apk
           Write-Host "APK copied: $($apk.FullName)"
 
       - name: Create GitHub release
