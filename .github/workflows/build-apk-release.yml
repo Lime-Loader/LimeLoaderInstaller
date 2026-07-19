@@ -1,0 +1,58 @@
+name: Build and publish MAUI installer APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-apk:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Install MAUI workloads
+        run: dotnet workload install maui android
+
+      - name: Build APK (Release)
+        shell: pwsh
+        env:
+          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
+        run: |
+          Set-PSDebug -Strict
+          Push-Location LemonLoaderInstaller-main/App
+          if (-Not (Test-Path limeinstaller.keystore)) {
+            if (-not $env:KEYSTORE_PASS) { Write-Error 'Secret KEYSTORE_PASS is required to create keystore'; exit 1 }
+            & keytool -genkeypair -v -keystore limeinstaller.keystore -alias lime -keyalg RSA -keysize 2048 -validity 10000 -storepass $env:KEYSTORE_PASS -keypass $env:KEYSTORE_PASS -dname "CN=lime, OU=dev, O=lime, L=, ST=, C=US"
+          } else { Write-Host 'Keystore exists' }
+          dotnet build MelonLoader.Installer.App.csproj -c Release -f net8.0-android -p:AndroidKeyStore=true -p:AndroidSigningKeyStore=App/limeinstaller.keystore -p:AndroidSigningKeyAlias=lime -p:AndroidSigningKeyPass=$env:KEYSTORE_PASS -p:AndroidSigningStorePass=$env:KEYSTORE_PASS
+          Pop-Location
+
+      - name: Copy APK to artifact
+        shell: pwsh
+        run: |
+          $apk = Get-ChildItem -Path 'LemonLoaderInstaller-main/App/bin/Release/net8.0-android' -Filter *.apk -Recurse | Select-Object -First 1
+          if ($null -eq $apk) { Write-Error 'APK not found'; exit 1 }
+          Copy-Item $apk.FullName -Destination installer.apk
+          Write-Host "APK copied: $($apk.FullName)"
+
+      - name: Create GitHub release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload APK to release
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: installer.apk
+          asset_name: LimeLoaderInstaller.apk
+          asset_content_type: application/vnd.android.package-archive
