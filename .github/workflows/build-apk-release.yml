@@ -13,29 +13,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup .NET 8
+      - name: Setup .NET 8 SDK
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '8.0.416'
 
-      - name: Verify .NET SDK
+      - name: Force .NET 8 SDK
         shell: pwsh
         run: |
-          dotnet --list-sdks
+          @"
+          {
+            "sdk": {
+              "version": "8.0.416",
+              "rollForward": "disable",
+              "allowPrerelease": false
+            }
+          }
+          "@ | Out-File -Encoding utf8 global.json
+
           dotnet --version
+          dotnet --list-sdks
 
-      - name: Install MAUI workloads
+      - name: Install MAUI workload
         shell: pwsh
         run: |
-          dotnet workload install maui android
+          dotnet workload install maui-android --ignore-failed-sources
           dotnet workload list
 
-      - name: Restore dependencies
+      - name: Restore
         shell: pwsh
         run: |
           dotnet restore App/MelonLoader.Installer.App.csproj
 
-      - name: Build APK (Release)
+      - name: Build APK
         shell: pwsh
         env:
           KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
@@ -46,11 +56,11 @@ jobs:
 
           if (-Not (Test-Path limeinstaller.keystore)) {
             if (-not $env:KEYSTORE_PASS) {
-              Write-Error 'Secret KEYSTORE_PASS is required to create keystore'
+              Write-Error "KEYSTORE_PASS secret missing"
               exit 1
             }
 
-            & keytool -genkeypair `
+            keytool -genkeypair `
               -v `
               -keystore limeinstaller.keystore `
               -alias lime `
@@ -60,9 +70,6 @@ jobs:
               -storepass $env:KEYSTORE_PASS `
               -keypass $env:KEYSTORE_PASS `
               -dname "CN=lime, OU=dev, O=lime, L=, ST=, C=US"
-          }
-          else {
-            Write-Host "Keystore exists"
           }
 
           dotnet build MelonLoader.Installer.App.csproj `
@@ -76,22 +83,21 @@ jobs:
 
           Pop-Location
 
-      - name: Copy APK to artifact
+      - name: Find APK
         shell: pwsh
         run: |
           $apk = Get-ChildItem `
-            -Path 'App/bin/Release/net8.0-android' `
+            -Path App/bin/Release/net8.0-android `
             -Filter *.apk `
             -Recurse |
             Select-Object -First 1
 
-          if ($null -eq $apk) {
+          if (-not $apk) {
             Write-Error "APK not found"
             exit 1
           }
 
           Copy-Item $apk.FullName installer.apk
-          Write-Host "APK copied: $($apk.FullName)"
 
       - name: Create GitHub release
         id: create_release
@@ -101,7 +107,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload APK to release
+      - name: Upload APK
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
