@@ -4,11 +4,12 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:  
+  workflow_dispatch:
 
 jobs:
   build-apk:
     runs-on: windows-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -26,19 +27,55 @@ jobs:
           KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
         run: |
           Set-PSDebug -Strict
-          Push-Location LemonLoaderInstaller-main/App
+
+          Push-Location App
+
           if (-Not (Test-Path limeinstaller.keystore)) {
-            if (-not $env:KEYSTORE_PASS) { Write-Error 'Secret KEYSTORE_PASS is required to create keystore'; exit 1 }
-            & keytool -genkeypair -v -keystore limeinstaller.keystore -alias lime -keyalg RSA -keysize 2048 -validity 10000 -storepass $env:KEYSTORE_PASS -keypass $env:KEYSTORE_PASS -dname "CN=lime, OU=dev, O=lime, L=, ST=, C=US"
-          } else { Write-Host 'Keystore exists' }
-          dotnet build MelonLoader.Installer.App.csproj -c Release -f net8.0-android -p:AndroidKeyStore=true -p:AndroidSigningKeyStore=App/limeinstaller.keystore -p:AndroidSigningKeyAlias=lime -p:AndroidSigningKeyPass=$env:KEYSTORE_PASS -p:AndroidSigningStorePass=$env:KEYSTORE_PASS
+            if (-not $env:KEYSTORE_PASS) {
+              Write-Error 'Secret KEYSTORE_PASS is required to create keystore'
+              exit 1
+            }
+
+            & keytool -genkeypair `
+              -v `
+              -keystore limeinstaller.keystore `
+              -alias lime `
+              -keyalg RSA `
+              -keysize 2048 `
+              -validity 10000 `
+              -storepass $env:KEYSTORE_PASS `
+              -keypass $env:KEYSTORE_PASS `
+              -dname "CN=lime, OU=dev, O=lime, L=, ST=, C=US"
+          }
+          else {
+            Write-Host "Keystore exists"
+          }
+
+          dotnet build MelonLoader.Installer.App.csproj `
+            -c Release `
+            -f net8.0-android `
+            -p:AndroidKeyStore=true `
+            -p:AndroidSigningKeyStore=limeinstaller.keystore `
+            -p:AndroidSigningKeyAlias=lime `
+            -p:AndroidSigningKeyPass=$env:KEYSTORE_PASS `
+            -p:AndroidSigningStorePass=$env:KEYSTORE_PASS
+
           Pop-Location
 
       - name: Copy APK to artifact
         shell: pwsh
         run: |
-          $apk = Get-ChildItem -Path 'LemonLoaderInstaller-main/App/bin/Release/net8.0-android' -Filter *.apk -Recurse | Select-Object -First 1
-          if ($null -eq $apk) { Write-Error 'APK not found'; exit 1 }
+          $apk = Get-ChildItem `
+            -Path 'App/bin/Release/net8.0-android' `
+            -Filter *.apk `
+            -Recurse |
+            Select-Object -First 1
+
+          if ($null -eq $apk) {
+            Write-Error 'APK not found'
+            exit 1
+          }
+
           Copy-Item $apk.FullName -Destination installer.apk
           Write-Host "APK copied: $($apk.FullName)"
 
