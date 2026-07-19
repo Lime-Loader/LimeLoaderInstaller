@@ -11,19 +11,36 @@ jobs:
     runs-on: windows-latest
 
     env:
-      DOTNET_NOLOGO: true
       KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Create global.json
+        shell: pwsh
+        run: |
+          @'
+          {
+            "sdk": {
+              "version": "8.0.408",
+              "rollForward": "latestPatch",
+              "allowPrerelease": false
+            }
+          }
+          '@ | Out-File -Encoding utf8 global.json
+
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: 8.0.408
 
-      - name: Install MAUI workload
+      - name: Verify SDK
+        run: |
+          dotnet --version
+          dotnet --list-sdks
+
+      - name: Install Android workload
         run: |
           dotnet workload install maui-android
 
@@ -34,29 +51,24 @@ jobs:
       - name: Create keystore
         shell: pwsh
         run: |
-          Set-PSDebug -Strict
-
           if (-not $env:KEYSTORE_PASS) {
-              Write-Error "KEYSTORE_PASS secret is missing"
-              exit 1
+            Write-Error "KEYSTORE_PASS secret is missing"
+            exit 1
           }
 
           Push-Location App
 
-          if (-not (Test-Path limeinstaller.keystore)) {
-              keytool -genkeypair `
-                -v `
-                -keystore limeinstaller.keystore `
-                -alias lime `
-                -keyalg RSA `
-                -keysize 2048 `
-                -validity 10000 `
-                -storepass "$env:KEYSTORE_PASS" `
-                -keypass "$env:KEYSTORE_PASS" `
-                -dname "CN=lime, OU=dev, O=lime, L=, ST=, C=US"
-          }
-          else {
-              Write-Host "Keystore exists"
+          if (!(Test-Path limeinstaller.keystore)) {
+            keytool -genkeypair `
+              -v `
+              -keystore limeinstaller.keystore `
+              -alias lime `
+              -keyalg RSA `
+              -keysize 2048 `
+              -validity 10000 `
+              -storepass "$env:KEYSTORE_PASS" `
+              -keypass "$env:KEYSTORE_PASS" `
+              -dname "CN=lime, OU=dev, O=lime, C=US"
           }
 
           Pop-Location
@@ -64,8 +76,6 @@ jobs:
       - name: Build APK
         shell: pwsh
         run: |
-          Set-PSDebug -Strict
-
           Push-Location App
 
           dotnet build MelonLoader.Installer.App.csproj `
@@ -82,6 +92,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: MelonLoader-Installer-APK
-          path: |
-            App/bin/Release/net8.0-android/*.apk
+          name: MelonLoader-Installer
+          path: App/bin/Release/net8.0-android/*.apk
