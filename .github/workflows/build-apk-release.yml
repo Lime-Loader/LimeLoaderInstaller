@@ -13,19 +13,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup .NET
+      - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
-      - name: Verify .NET version
+      - name: Verify .NET SDK
         shell: pwsh
-        run: dotnet --info
+        run: |
+          dotnet --list-sdks
+          dotnet --version
 
       - name: Install MAUI workloads
         shell: pwsh
         run: |
           dotnet workload install maui android
+          dotnet workload list
 
       - name: Restore dependencies
         shell: pwsh
