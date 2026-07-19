@@ -3,6 +3,9 @@
 	<PropertyGroup>
 		<TargetFrameworks>net8.0-android</TargetFrameworks>
 		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);net8.0-windows10.0.19041.0</TargetFrameworks>
+
+		<MauiVersion>8.0.100</MauiVersion>
+
 		<OutputType>Exe</OutputType>
 		<RootNamespace>MelonLoader.Installer.App</RootNamespace>
 		<UseMaui>true</UseMaui>
