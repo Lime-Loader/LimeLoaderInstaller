@@ -83,7 +83,7 @@
         </Border>
 
         <Grid Grid.Row="3"
-              RowDefinitions="Auto, Auto, Auto"
+              RowDefinitions="Auto, Auto, Auto, Auto"
               VerticalOptions="EndAndExpand">
             <Border  x:Name="CustomPatchButton"
                      Grid.Row="0"
@@ -102,8 +102,25 @@
                        FontSize="Small"
                        HorizontalTextAlignment="Center" />
             </Border>
-            <Border  x:Name="PatchLocalButton"
+            <Border  x:Name="CustomMelonDataButton"
                      Grid.Row="1"
+                     Stroke="{StaticResource Primary}"
+                     Background="{StaticResource Primary}"
+                     StrokeShape="RoundRectangle 15,15,15,15"
+                     Padding="10"
+                     Margin="20,0,20,10">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Command="{Binding Source={RelativeSource AncestorType={x:Type local:PatchAppPage}}, Path=BindingContext.CustomMelonDataCommand}"
+                                          CommandParameter="{Binding}" />
+                </Border.GestureRecognizers>
+
+                <Label Text="Patch with Custom melon_data.zip"
+                       TextColor="{StaticResource Light}"
+                       FontSize="Small"
+                       HorizontalTextAlignment="Center" />
+            </Border>
+            <Border  x:Name="PatchLocalButton"
+                     Grid.Row="2"
                      Stroke="{StaticResource Primary}"
                      Background="{StaticResource Primary}"
                      StrokeShape="RoundRectangle 15,15,15,15"
@@ -120,7 +137,7 @@
                        HorizontalTextAlignment="Center" />
             </Border>
             <Border  x:Name="RestoreAPKButton"
-                     Grid.Row="2"
+                     Grid.Row="3"
                      Stroke="{StaticResource Primary}"
                      Background="{StaticResource Primary}"
                      StrokeShape="RoundRectangle 15,15,15,15"

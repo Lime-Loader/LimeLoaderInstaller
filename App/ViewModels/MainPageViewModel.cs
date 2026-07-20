@@ -13,9 +13,24 @@ public class MainPageViewModel : BindableObject
 
     public ICommand ItemTappedCommand { get; }
     public ICommand SelectAPKButtonCommand { get; }
+    public ICommand RefreshCommand { get; }
 
     public Action? OnAppAddingComplete { get; set; }
     public Action? OnAppAddingReset { get; set; }
+
+    private bool _isRefreshing;
+    public bool IsRefreshing
+    {
+        get => _isRefreshing;
+        set
+        {
+            if (_isRefreshing == value)
+                return;
+
+            _isRefreshing = value;
+            OnPropertyChanged();
+        }
+    }
 
     private CancellationTokenSource? _appSearchTokenSource = null;
     private Thread? _appSearchThread = null;
@@ -24,6 +39,13 @@ public class MainPageViewModel : BindableObject
     {
         ItemTappedCommand = new Command<UnityApplicationFinder.Data>(OnItemTapped);
         SelectAPKButtonCommand = new Command(OnTapSelectAPKButton);
+        // Cancelling + joining the previous search thread can block, so never run the restart on the
+        // UI thread (that is what froze the app / required a force-stop). Offload it to the pool.
+        RefreshCommand = new Command(() =>
+        {
+            IsRefreshing = true;
+            Task.Run(StartNewAppSearchThread);
+        });
         OnAppAddingComplete = null;
         OnAppAddingReset = null;
 
@@ -48,28 +70,35 @@ public class MainPageViewModel : BindableObject
 
     private void AddAllApps(CancellationToken token = default)
     {
-        Application.Current!.Dispatcher.Dispatch(() => OnAppAddingReset?.Invoke());
-
-        Items.ClearOnUI();
-        UnityApplicationFinder.Reset();
-        foreach (var app in UnityApplicationFinder.Find(token))
+        try
         {
+            Application.Current!.Dispatcher.Dispatch(() => OnAppAddingReset?.Invoke());
+
+            Items.ClearOnUI();
+            UnityApplicationFinder.Reset();
+            foreach (var app in UnityApplicationFinder.Find(token))
+            {
+                if (token.IsCancellationRequested)
+                {
+                    Items.ClearOnUI();
+                    return;
+                }
+
+                Items.AddOnUI(app);
+            }
+
             if (token.IsCancellationRequested)
             {
                 Items.ClearOnUI();
                 return;
             }
 
-            Items.AddOnUI(app);
+            Application.Current!.Dispatcher.Dispatch(() => OnAppAddingComplete?.Invoke());
         }
-
-        if (token.IsCancellationRequested)
+        finally
         {
-            Items.ClearOnUI();
-            return;
+            Application.Current!.Dispatcher.Dispatch(() => IsRefreshing = false);
         }
-
-        Application.Current!.Dispatcher.Dispatch(() => OnAppAddingComplete?.Invoke());
     }
 
     private async void OnTapSelectAPKButton()

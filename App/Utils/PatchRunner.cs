@@ -26,7 +26,7 @@ public static class PatchRunner
 
     private static bool _isPatching = false;
 
-    public static async Task Begin(UnityApplicationFinder.Data data, string? localUnityDepsPath)
+    public static async Task Begin(UnityApplicationFinder.Data data, string? localUnityDepsPath, string? customMelonDataPath = null)
     {
         _isPatching = true;
 
@@ -57,7 +57,7 @@ public static class PatchRunner
             if (Directory.Exists(_tempPath))
                 Directory.Delete(_tempPath, true);
 
-            Task task = Task.Run(async () => await InternalBegin(data, localUnityDepsPath));
+            Task task = Task.Run(async () => await InternalBegin(data, localUnityDepsPath, customMelonDataPath));
             await task;
         }
         catch (Exception ex)
@@ -71,14 +71,14 @@ public static class PatchRunner
         _consolePage!.BackButtonVisible = true;
     }
 
-    private static async Task InternalBegin(UnityApplicationFinder.Data data, string? localUnityDepsPath)
+    private static async Task InternalBegin(UnityApplicationFinder.Data data, string? localUnityDepsPath, string? customMelonDataPath = null)
     {
         _logger?.Log($"Build Directory: [ {_basePath} ]");
 
         if (Directory.Exists(_tempPath))
             Directory.Delete(_tempPath);
 
-        await PrepareAssets(localUnityDepsPath);
+        await PrepareAssets(localUnityDepsPath, customMelonDataPath);
 
         await GetUnityVersion(data);
 
@@ -181,7 +181,7 @@ public static class PatchRunner
         _logger?.Log($"Found [ {_unityVersion} ]");
     }
 
-    private static async Task PrepareAssets(string? localUnityDepsPath)
+    private static async Task PrepareAssets(string? localUnityDepsPath, string? customMelonDataPath = null)
     {
         _logger?.Log("Preparing assets");
 
@@ -198,12 +198,25 @@ public static class PatchRunner
 
         _logger?.Log("Downloading MelonLoader data");
 
-        if (!await DownloadMelonData(_melonDataPath))
+        if (!await DownloadMelonData(_melonDataPath, customMelonDataPath))
             throw new Exception("Failed to download MelonLoader data");
     }
 
-    private static async Task<bool> DownloadMelonData(string destination)
+    private static async Task<bool> DownloadMelonData(string destination, string? customMelonDataPath = null)
     {
+        if (!string.IsNullOrEmpty(customMelonDataPath))
+        {
+            if (!File.Exists(customMelonDataPath))
+            {
+                _logger?.Log($"Custom melon_data.zip not found: [ {customMelonDataPath} ]");
+                return false;
+            }
+
+            _logger?.Log($"Using custom melon_data.zip [ {customMelonDataPath} ]");
+            File.Copy(customMelonDataPath, destination, true);
+            return true;
+        }
+
 #if DEBUG
         if (File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "melon_data/melon_data.zip")))
         {

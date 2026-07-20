@@ -27,6 +27,7 @@ public class PatchAppPageViewModel : BindableObject
 
     public ICommand PatchTappedCommand { get; }
     public ICommand CustomPatchCommand { get; }
+    public ICommand CustomMelonDataCommand { get; }
     public ICommand PatchLocalTappedCommand { get; }
     public ICommand RestoreTappedCommand { get; }
 
@@ -34,6 +35,7 @@ public class PatchAppPageViewModel : BindableObject
     {
         PatchTappedCommand = new Command(PatchWithoutLocalDeps);
         CustomPatchCommand = new Command(SelectCustomPatch);
+        CustomMelonDataCommand = new Command(SelectCustomMelonData);
         PatchLocalTappedCommand = new Command(SelectLocalDepsWithPatch);
         RestoreTappedCommand = new Command(RestoreUnpatchedAPK);
     }
@@ -90,6 +92,66 @@ public class PatchAppPageViewModel : BindableObject
         await PopupHelper.Toast((added ? "Added " : "Removed ") + "selected plugin.");
     }
 
+    private async void SelectCustomMelonData()
+    {
+        if (PatchRunner.IsPatching)
+        {
+            await PopupHelper.Toast("Already patching or restoring, you cannot work on multiple apps at once.");
+            return;
+        }
+
+        if (_currentAppData == null)
+        {
+            await PopupHelper.Toast("No app selected.", CommunityToolkit.Maui.Core.ToastDuration.Short);
+            return;
+        }
+
+        FilePickerFileType zipType = new(new Dictionary<DevicePlatform, IEnumerable<string>>
+        {
+            { DevicePlatform.Android, [ "application/zip", "application/octet-stream", "*/*" ] },
+            { DevicePlatform.WinUI, [ ".zip" ] }
+        });
+
+        try
+        {
+            var result = await FilePicker.Default.PickAsync(new PickOptions() { FileTypes = zipType, PickerTitle = "Select a melon_data.zip" });
+            if (result == null)
+                return;
+
+            if (!result.FileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+            {
+                await PopupHelper.Toast("Please select a .zip file.");
+                return;
+            }
+
+            // Sanity check that it actually looks like a melon_data package before committing to a patch.
+            try
+            {
+                using FileStream zipStream = new(result.FullPath, FileMode.Open);
+                using ZipArchive archive = new(zipStream, ZipArchiveMode.Read);
+
+                bool looksValid = archive.Entries.Any(a => a.FullName.Replace('\\', '/').Contains("MelonLoader/"));
+                if (!looksValid)
+                {
+                    await PopupHelper.Toast("Selected zip does not contain a MelonLoader folder and cannot be used.");
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                await PopupHelper.Toast("Selected zip is invalid.");
+                System.Diagnostics.Debug.WriteLine(ex);
+                return;
+            }
+
+            await DoPatch(customMelonDataPath: result.FullPath);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(ex);
+        }
+    }
+
     private async void SelectLocalDepsWithPatch()
     {
         FilePickerFileType zipType = new(new Dictionary<DevicePlatform, IEnumerable<string>>
@@ -142,7 +204,7 @@ public class PatchAppPageViewModel : BindableObject
         }
     }
 
-    private static async Task DoPatch(string? localDepsPath = null)
+    private static async Task DoPatch(string? localDepsPath = null, string? customMelonDataPath = null)
     {
         if (PatchRunner.IsPatching)
         {
@@ -156,7 +218,7 @@ public class PatchAppPageViewModel : BindableObject
             return;
         }
 
-        await PatchRunner.Begin(CurrentAppData, localDepsPath);
+        await PatchRunner.Begin(CurrentAppData, localDepsPath, customMelonDataPath);
     }
 
     private async void RestoreUnpatchedAPK()

@@ -28,8 +28,48 @@ public class APKInstaller
 
     private TaskCompletionSource<bool>? _packageChangeCompletionSource;
     private PackageChangeReceiver? _packageChangeReceiver;
+    private Android.App.Activity? _receiverActivity;
 
     public void SetPackageChangeCompletion(bool success) => _packageChangeCompletionSource?.TrySetResult(success);
+
+    // Register/unregister are kept symmetric and defensive: a leaked BroadcastReceiver pins the
+    // Activity ("Activity has leaked IntentReceiver") and leaves the installer unusable until it is
+    // force-stopped. We unregister from the exact Activity we registered on, and never throw.
+    private void RegisterPackageReceiver(string action)
+    {
+        UnregisterPackageReceiver();
+
+        _packageChangeCompletionSource = new TaskCompletionSource<bool>();
+        _packageChangeReceiver = new PackageChangeReceiver(_packageChangeCompletionSource, _data.PackageName);
+
+        IntentFilter filter = new(action);
+        filter.AddDataScheme("package");
+
+        _receiverActivity = Platform.CurrentActivity;
+        if (Android.OS.Build.VERSION.SdkInt >= Android.OS.BuildVersionCodes.Tiramisu)
+            _receiverActivity!.RegisterReceiver(_packageChangeReceiver, filter, ReceiverFlags.NotExported);
+        else
+            _receiverActivity!.RegisterReceiver(_packageChangeReceiver, filter);
+    }
+
+    private void UnregisterPackageReceiver()
+    {
+        if (_packageChangeReceiver == null)
+            return;
+
+        try
+        {
+            (_receiverActivity ?? Platform.CurrentActivity)?.UnregisterReceiver(_packageChangeReceiver);
+        }
+        catch (Exception e)
+        {
+            // Already unregistered / activity gone. Nothing to do but avoid propagating.
+            System.Diagnostics.Debug.WriteLine($"Failed to unregister package receiver: {e}");
+        }
+
+        _packageChangeReceiver = null;
+        _receiverActivity = null;
+    }
 #endif
 
     public APKInstaller(UnityApplicationFinder.Data data, IPatchLogger logger)
@@ -87,26 +127,23 @@ public class APKInstaller
                 session.Fsync(outStream);
             }
 
-            _packageChangeCompletionSource = new TaskCompletionSource<bool>();
-            _packageChangeReceiver = new PackageChangeReceiver(_packageChangeCompletionSource, _data.PackageName);
-            IntentFilter filter = new(Intent.ActionPackageAdded);
-            filter.AddDataScheme("package");
-            Platform.CurrentActivity!.RegisterReceiver(_packageChangeReceiver, filter);
+            RegisterPackageReceiver(Intent.ActionPackageAdded);
 
             Intent callbackIntent = new(Platform.CurrentActivity!, typeof(Platforms.Android.PackageInstallerService));
             PendingIntent pending = PendingIntent.GetService(Platform.CurrentActivity!, 0, callbackIntent, (PendingIntentFlags)33554432)!; // 33554432 is PendingIntentFlags.Mutable but maui doesn't provide it
             session.Commit(pending.IntentSender);
 
-            bool success = await _packageChangeCompletionSource.Task;
-
-            Platform.CurrentActivity!.UnregisterReceiver(_packageChangeReceiver);
-            _packageChangeReceiver = null;
+            bool success = await _packageChangeCompletionSource!.Task;
         }
         catch (Exception e)
         {
             _logger.Log($"Failed to install APK(s)\n{e}");
             _successful = false;
             return;
+        }
+        finally
+        {
+            UnregisterPackageReceiver();
         }
 #else
         if (apks.Length > 1)
@@ -123,23 +160,27 @@ public class APKInstaller
 #if ANDROID
         _logger.Log("Uninstalling, please wait...");
 
-        PackageInstaller packageInstaller = Platform.CurrentActivity!.PackageManager!.PackageInstaller;
+        try
+        {
+            PackageInstaller packageInstaller = Platform.CurrentActivity!.PackageManager!.PackageInstaller;
 
-        Intent callbackIntent = new(Platform.CurrentActivity!, typeof(Platforms.Android.PackageInstallerService));
-        PendingIntent pending = PendingIntent.GetService(Platform.CurrentActivity!, 0, callbackIntent, (PendingIntentFlags)33554432)!;
+            Intent callbackIntent = new(Platform.CurrentActivity!, typeof(Platforms.Android.PackageInstallerService));
+            PendingIntent pending = PendingIntent.GetService(Platform.CurrentActivity!, 0, callbackIntent, (PendingIntentFlags)33554432)!;
 
-        _packageChangeCompletionSource = new TaskCompletionSource<bool>();
-        _packageChangeReceiver = new PackageChangeReceiver(_packageChangeCompletionSource, _data.PackageName);
-        IntentFilter filter = new(Intent.ActionPackageRemoved);
-        filter.AddDataScheme("package");
-        Platform.CurrentActivity!.RegisterReceiver(_packageChangeReceiver, filter);
+            RegisterPackageReceiver(Intent.ActionPackageRemoved);
 
-        packageInstaller.Uninstall(_data.PackageName, pending.IntentSender);
+            packageInstaller.Uninstall(_data.PackageName, pending.IntentSender);
 
-        bool success = await _packageChangeCompletionSource.Task;
-
-        Platform.CurrentActivity!.UnregisterReceiver(_packageChangeReceiver);
-        _packageChangeReceiver = null;
+            bool success = await _packageChangeCompletionSource!.Task;
+        }
+        catch (Exception e)
+        {
+            _logger.Log($"Failed to uninstall package\n{e}");
+        }
+        finally
+        {
+            UnregisterPackageReceiver();
+        }
 #else
         await ADBManager.UninstallPackage(_data.PackageName);
         await _next!();

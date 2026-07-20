@@ -13,7 +13,10 @@
     <ListView ItemsSource="{Binding Items}"
               HasUnevenRows="True"
               SelectionMode="None"
-              SeparatorVisibility="None">
+              SeparatorVisibility="None"
+              IsPullToRefreshEnabled="True"
+              RefreshCommand="{Binding RefreshCommand}"
+              IsRefreshing="{Binding IsRefreshing}">
         <ListView.Header>
             <Grid x:Name="HeaderGrid"
                   Padding="25"
@@ -39,13 +42,19 @@
                        FontAttributes="Bold"
                        Padding="5,0,0,0"
                        TextColor="{StaticResource ExtraLight}" />
-                <Button Grid.Row="0"
-                        Grid.Column="1"
-                        HorizontalOptions="EndAndExpand"
-                        Text="{mi:SegoeFluent SDCard, IconSize=Medium, IconColor={StaticResource Light}}"
-                        BorderWidth="0"
-                        BorderColor="Transparent"
-                        Command="{Binding SelectAPKButtonCommand}" />
+                <HorizontalStackLayout Grid.Row="0"
+                                       Grid.Column="1"
+                                       HorizontalOptions="EndAndExpand"
+                                       Spacing="5">
+                    <Button Text="{mi:SegoeFluent Refresh, IconSize=Medium, IconColor={StaticResource Light}}"
+                            BorderWidth="0"
+                            BorderColor="Transparent"
+                            Command="{Binding RefreshCommand}" />
+                    <Button Text="{mi:SegoeFluent SDCard, IconSize=Medium, IconColor={StaticResource Light}}"
+                            BorderWidth="0"
+                            BorderColor="Transparent"
+                            Command="{Binding SelectAPKButtonCommand}" />
+                </HorizontalStackLayout>
             </Grid>
         </ListView.Header>
         <ListView.ItemTemplate>
